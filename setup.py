@@ -26,7 +26,7 @@ def _parse_requirements(file_path):
 
 # parse_requirements() returns generator of pip.req.InstallRequirement objects
 try:
-    install_reqs = _parse_requirements("requirements.txt")
+    install_reqs = _parse_requirements("requirements_myown.txt")
 except Exception:
     logging.warning('Fail load requirements file, so using default ones.')
     install_reqs = []
@@ -43,8 +43,8 @@ setup(
     install_requires=install_reqs,
     include_package_data=True,
     python_requires='>=3.4',
-    long_description="""This is an implementation of Mask R-CNN on Python 3, Keras, and TensorFlow. 
-The model generates bounding boxes and segmentation masks for each instance of an object in the image. 
+    long_description="""This is an implementation of Mask R-CNN on Python 3, Keras, and TensorFlow.
+The model generates bounding boxes and segmentation masks for each instance of an object in the image.
 It's based on Feature Pyramid Network (FPN) and a ResNet101 backbone.""",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
