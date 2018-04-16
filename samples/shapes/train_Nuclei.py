@@ -119,6 +119,7 @@ class ShapesDataset(utils.Dataset):
         specs in image_info.
         """
         info = self.image_info[image_id]
+        # print('smy info : ',info)
         image = Image.open(img_floders[image_id])
         image = image.convert("RGB")
         image = np.array(image, dtype=np.uint8)
@@ -140,14 +141,23 @@ class ShapesDataset(utils.Dataset):
             super(self.__class__).image_reference(self, image_id)
 
     #重新写draw_mask
-    def draw_mask(self, num_obj, mask, image):
+    def draw_mask(self, num_obj, mask, mask_folders):
             info = self.image_info[image_id]
-            for index in range(num_obj):
+            for index in range(len(mask_folders)):
+                image = Image.open(mask_folders[index])
+                image = image.convert("RGB")
+                image = np.array(image, dtype=np.uint8)
+                # 调整到固定大小
+                image, window, scale, padding = utils.resize_image(
+                    image,
+                    min_dim=config.IMAGE_MIN_DIM,
+                    max_dim=config.IMAGE_MAX_DIM,
+                    mode="square")
                 for i in range(info['width']):
                     for j in range(info['height']):
-                        at_pixel = image.getpixel((i, j))
+                        at_pixel = image[i][j]
                         if at_pixel[0] > 0:
-                            mask[j, i, index] =1
+                            mask[i, j, index] =1
             return mask
 
     def load_mask(self, image_id):
@@ -158,17 +168,9 @@ class ShapesDataset(utils.Dataset):
         masklist = os.listdir(mask_path)
         mask_folders = [mask_path+mask for mask in masklist]
         count = len(mask_folders)
-        image = Image.open(img_floders[image_id])
-        image = image.convert("RGB")
-        image = np.array(image, dtype=np.uint8)
-        # 调整到固定大小
-        image, window, scale, padding = utils.resize_image(
-            image,
-            min_dim=config.IMAGE_MIN_DIM,
-            max_dim=config.IMAGE_MAX_DIM,
-            mode="square")
+
         mask = np.zeros([info['height'], info['width'], count], dtype=np.uint8)
-        mask = self.draw_mask(count, mask, image)
+        mask = self.draw_mask(count, mask, mask_folders)
         # Handle occlusions  就是把所有mask合成一个mask
         occlusion = np.logical_not(mask[:, :, -1]).astype(np.uint8)
         for i in range(count-2, -1, -1):
