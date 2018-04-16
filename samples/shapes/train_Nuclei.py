@@ -8,6 +8,8 @@ import numpy as np
 import cv2
 import matplotlib
 import matplotlib.pyplot as plt
+# smy
+from PIL import Image
 
 # Root directory of the project
 ROOT_DIR = os.path.abspath("../../")
@@ -45,12 +47,12 @@ class ShapesConfig(Config):
     IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 3  # background + 3 shapes
+    NUM_CLASSES = 1 + 1  # background + 3 shapes
 
     # Use small images for faster training. Set the limits of the small side
     # the large side, and that determines the image shape.
-    IMAGE_MIN_DIM = 128
-    IMAGE_MAX_DIM = 128
+    IMAGE_MIN_DIM = 1024
+    IMAGE_MAX_DIM = 1024
 
     # Use smaller anchors because our image and objects are small
     RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)  # anchor side in pixels
@@ -85,34 +87,30 @@ class ShapesDataset(utils.Dataset):
     The images are generated on the fly. No file access required.
     """
 
-    def load_shapes(self, count, height, width):
+    def load_shapes(self, count, height, width, img_floders, mask_floders):
         """Generate the requested number of synthetic images.
         count: number of images to generate.
         height, width: the size of the generated images.
         """
         # Add classes
-        self.add_class("shapes", 1, "square")
-        self.add_class("shapes", 2, "circle")
-        self.add_class("shapes", 3, "triangle")
+        self.add_class("shapes", 1, "nuclei")
 
         # Add images
         # Generate random specifications of images (i.e. color and
         # list of shapes sizes and locations). This is more compact than
         # actual images. Images are generated on the fly in load_image().
         for i in range(count):
-            bg_color, shapes = self.random_image(height, width)
-            self.add_image("shapes", image_id=i, path=None,
-                           width=width, height=height,
-                           bg_color=bg_color, shapes=shapes)
-        # utils.py
-        # def add_image(self, source, image_id, path, **kwargs):
-        #     image_info = {
-        #         "id": image_id,
-        #         "source": source,
-        #         "path": path,
-        #     }
-        #     image_info.update(kwargs)
-        #     self.image_info.append(image_info)
+            self.add_image("shapes", image_id=i, path=img_floders[i],
+                           width=width, height=height, mask_path=mask_floders[i], original_info=None)
+
+# >>> a = [{'a':1,'b':2},{'a':1,'b':2}]
+# >>> a
+# [{'a': 1, 'b': 2}, {'a': 1, 'b': 2}]
+# >>> a[0]['a']=100
+# >>> a
+# [{'a': 100, 'b': 2}, {'a': 1, 'b': 2}]
+# >>>
+
 
     def load_image(self, image_id):
         """Generate an image from the specs of the given image ID.
@@ -121,32 +119,65 @@ class ShapesDataset(utils.Dataset):
         specs in image_info.
         """
         info = self.image_info[image_id]
-        bg_color = np.array(info['bg_color']).reshape([1, 1, 3])
-        image = np.ones([info['height'], info['width'], 3], dtype=np.uint8)
-        image = image * bg_color.astype(np.uint8)
-        for shape, color, dims in info['shapes']:
-            image = self.draw_shape(image, shape, dims, color)
+        image = Image.open(img_floders[image_id])
+        image = image.convert("RGB")
+        image = np.array(image, dtype=np.uint8)
+        # 调整到固定大小
+        image, window, scale, padding = utils.resize_image(
+            image,
+            min_dim=config.IMAGE_MIN_DIM,
+            max_dim=config.IMAGE_MAX_DIM,
+            mode="square")
+        self.image_info[image_id]["original_info"] = (window, scale, padding)
         return image
 
     def image_reference(self, image_id):
         """Return the shapes data of the image."""
         info = self.image_info[image_id]
         if info["source"] == "shapes":
-            return info["shapes"]
+            return info["mask_path"]
         else:
             super(self.__class__).image_reference(self, image_id)
+
+    #重新写draw_mask
+    def draw_mask(self, num_obj, mask, image):
+            info = self.image_info[image_id]
+            for index in range(num_obj):
+                for i in range(info['width']):
+                    for j in range(info['height']):
+                        at_pixel = image.getpixel((i, j))
+                        if at_pixel == index + 1:
+                            mask[j, i, index] =1
+            return mask
 
     def load_mask(self, image_id):
         """Generate instance masks for shapes of the given image ID.
         """
         info = self.image_info[image_id]
-        shapes = info['shapes']
-        count = len(shapes)
+        mask_path = info['mask_path']
+        masklist = os.listdir(mask_path)
+        mask_folders = [mask_path+mask for mask in masklist]
+        count = len(mask_folders)
+        image = Image.open(img_floders[image_id])
+        image = image.convert("RGB")
+        image = np.array(image, dtype=np.uint8)
+        # 调整到固定大小
+        image, window, scale, padding = utils.resize_image(
+            image,
+            min_dim=config.IMAGE_MIN_DIM,
+            max_dim=config.IMAGE_MAX_DIM,
+            mode="square")
+
+
+
+
+
+
         mask = np.zeros([info['height'], info['width'], count], dtype=np.uint8)
         for i, (shape, _, dims) in enumerate(info['shapes']):
             mask[:, :, i:i+1] = self.draw_shape(mask[:, :, i:i+1].copy(),
                                                 shape, dims, 1)
-        # Handle occlusions
+        # Handle occlusions  就是把所有mask合成一个mask
         occlusion = np.logical_not(mask[:, :, -1]).astype(np.uint8)
         for i in range(count-2, -1, -1):
             mask[:, :, i] = mask[:, :, i] * occlusion
@@ -155,82 +186,41 @@ class ShapesDataset(utils.Dataset):
         class_ids = np.array([self.class_names.index(s[0]) for s in shapes])
         return mask.astype(np.bool), class_ids.astype(np.int32)
 
-    def draw_shape(self, image, shape, dims, color):
-        """Draws a shape from the given specs."""
-        # Get the center x, y and the size s
-        x, y, s = dims
-        if shape == 'square':
-            cv2.rectangle(image, (x-s, y-s), (x+s, y+s), color, -1)
-        elif shape == "circle":
-            cv2.circle(image, (x, y), s, color, -1)
-        elif shape == "triangle":
-            points = np.array([[(x, y-s),
-                                (x-s/math.sin(math.radians(60)), y+s),
-                                (x+s/math.sin(math.radians(60)), y+s),
-                                ]], dtype=np.int32)
-            cv2.fillPoly(image, points, color)
-        return image
 
-    def random_shape(self, height, width):
-        """Generates specifications of a random shape that lies within
-        the given height and width boundaries.
-        Returns a tuple of three valus:
-        * The shape name (square, circle, ...)
-        * Shape color: a tuple of 3 values, RGB.
-        * Shape dimensions: A tuple of values that define the shape size
-                            and location. Differs per shape type.
-        """
-        # Shape
-        shape = random.choice(["square", "circle", "triangle"])
-        # Color
-        color = tuple([random.randint(0, 255) for _ in range(3)])
-        # Center x, y
-        buffer = 20
-        y = random.randint(buffer, height - buffer - 1)
-        x = random.randint(buffer, width - buffer - 1)
-        # Size
-        s = random.randint(buffer, height//4)
-        return shape, color, (x, y, s)
 
-    def random_image(self, height, width):
-        """Creates random specifications of an image with multiple shapes.
-        Returns the background color of the image and a list of shape
-        specifications that can be used to draw the image.
-        shapes = [s for i, s in enumerate(shapes) if i in keep_ixs] 这句，i是range(N)范围内的数
-        """
-        # Pick random background color
-        bg_color = np.array([random.randint(0, 255) for _ in range(3)])
-        # print('smy: ',bg_color)
-        # Generate a few random shapes and record their
-        # bounding boxes
-        shapes = []
-        boxes = []
-        N = random.randint(1, 4)
-        for _ in range(N):
-            shape, color, dims = self.random_shape(height, width)
-            shapes.append((shape, color, dims))
-            x, y, s = dims
-            boxes.append([y-s, x-s, y+s, x+s])
-        # Apply non-max suppression wit 0.3 threshold to avoid
-        # shapes covering each other
-        keep_ixs = utils.non_max_suppression(np.array(boxes), np.arange(N), 0.3)
-        shapes = [s for i, s in enumerate(shapes) if i in keep_ixs]
-        return bg_color, shapes
+# 基础设置
+dataset_root_path="/home/shenmaoyuan/proj/kaggle/stage1_train/"
+imglist = os.listdir(dataset_root_path)
+imglist_val = []
+for i in range(70):
+    index = random.randint(0,len(imglist)-1)
+    imglist_val.append(imglist[index])
+    imglist.pop(index)
+img_floders = [dataset_root_path+img+"/images/" for img in imglist]
+img_floders = [img+os.listdir(img)[0] for img in img_floders]
+mask_floders = [dataset_root_path+img+"/masks/" for img in imglist]
+img_floders_val = [dataset_root_path+img+"/images/" for img in imglist_val]
+img_floders_val = [img+os.listdir(img)[0] for img in img_floders_val]
+mask_floders_val = [dataset_root_path+img+"/masks/" for img in imglist_val]
+#yaml_floder = dataset_root_path
+count = len(imglist)
+countval = len(imglist_val)
+# width = 1024
+# height = 1024
 
+# >>> import Image
+# >>> im = Image.open("lena.ppm")
+# >>> im.show()
+# min_dim=config.IMAGE_MIN_DIM,
+# max_dim=config.IMAGE_MAX_DIM,
 # Training dataset
 dataset_train = ShapesDataset()
-dataset_train.load_shapes(500, config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1])
+dataset_train.load_shapes(count, config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1], img_floders, mask_floders)
 dataset_train.prepare()
-# config.py
-# IMAGE_MIN_DIM = 800
-# IMAGE_MAX_DIM = 1024
-# self.IMAGE_SHAPE = np.array(
-#     [self.IMAGE_MAX_DIM, self.IMAGE_MAX_DIM, 3])
-
 
 # Validation dataset
 dataset_val = ShapesDataset()
-dataset_val.load_shapes(50, config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1])
+dataset_val.load_shapes(countval, config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1], img_floders_val, mask_floders_val)
 dataset_val.prepare()
 
 # Load and display random samples
@@ -245,7 +235,7 @@ model = modellib.MaskRCNN(mode="training", config=config,
                           model_dir=MODEL_DIR)
 
 # Which weights to start with?
-init_with = "last"  # imagenet, coco, or last
+init_with = "coco"  # imagenet, coco, or last
 
 if init_with == "imagenet":
     model.load_weights(model.get_imagenet_weights(), by_name=True)
@@ -266,7 +256,7 @@ elif init_with == "last":
 # which layers to train by name pattern.
 model.train(dataset_train, dataset_val,
             learning_rate=config.LEARNING_RATE,
-            epochs=1,
+            epochs=5,
             layers='heads')
 
 # Fine tune all layers
@@ -275,7 +265,7 @@ model.train(dataset_train, dataset_val,
 # train by name pattern.
 model.train(dataset_train, dataset_val,
             learning_rate=config.LEARNING_RATE / 10,
-            epochs=2,
+            epochs=10,
             layers="all")
 
 # Save weights
