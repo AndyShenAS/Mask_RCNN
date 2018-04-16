@@ -98,9 +98,17 @@ mask_folders = [mask_path+mask for mask in masklist]
 count = len(mask_folders)
 image = Image.open(mask_folders[0])
 image = image.convert("RGB")
+at_pixel = image.getpixel((100, 100))
+print('at_pixel:',at_pixel)
 image = np.array(image, dtype=np.uint8)
+print('mask shape:',image.shape)
+
+
 np.set_printoptions(threshold=np.NaN)
-print(np.nonzero(image))
+# print(np.nonzero(image))
+f = open('./test_parameter.txt','w')
+f.write(str(image))
+f.close()
 
 
 

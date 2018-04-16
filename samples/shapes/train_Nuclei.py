@@ -146,7 +146,7 @@ class ShapesDataset(utils.Dataset):
                 for i in range(info['width']):
                     for j in range(info['height']):
                         at_pixel = image.getpixel((i, j))
-                        if at_pixel == index + 1:
+                        if at_pixel[0] > 0:
                             mask[j, i, index] =1
             return mask
 
@@ -167,23 +167,18 @@ class ShapesDataset(utils.Dataset):
             min_dim=config.IMAGE_MIN_DIM,
             max_dim=config.IMAGE_MAX_DIM,
             mode="square")
-
-
-
-
-
-
         mask = np.zeros([info['height'], info['width'], count], dtype=np.uint8)
-        for i, (shape, _, dims) in enumerate(info['shapes']):
-            mask[:, :, i:i+1] = self.draw_shape(mask[:, :, i:i+1].copy(),
-                                                shape, dims, 1)
+        mask = self.draw_mask(count, mask, image)
         # Handle occlusions  就是把所有mask合成一个mask
         occlusion = np.logical_not(mask[:, :, -1]).astype(np.uint8)
         for i in range(count-2, -1, -1):
             mask[:, :, i] = mask[:, :, i] * occlusion
             occlusion = np.logical_and(occlusion, np.logical_not(mask[:, :, i]))
         # Map class names to class IDs.
-        class_ids = np.array([self.class_names.index(s[0]) for s in shapes])
+        labels_form=[]
+        for i in range(count):
+            labels_form.append("nuclei")
+        class_ids = np.array([self.class_names.index(s) for s in labels_form])
         return mask.astype(np.bool), class_ids.astype(np.int32)
 
 
