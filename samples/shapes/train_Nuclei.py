@@ -120,7 +120,8 @@ class ShapesDataset(utils.Dataset):
         """
         info = self.image_info[image_id]
         # print('smy info : ',info)
-        image = Image.open(img_floders[image_id])
+        # image = Image.open(img_floders[image_id])  !！!！!！!！!！!！!
+        image = Image.open(info['path'])
         image = image.convert("RGB")
         image = np.array(image, dtype=np.uint8)
         # 调整到固定大小
@@ -141,7 +142,7 @@ class ShapesDataset(utils.Dataset):
             super(self.__class__).image_reference(self, image_id)
 
     #重新写draw_mask
-    def draw_mask(self, num_obj, mask, mask_folders):
+    def draw_mask(self, num_obj, image_id, mask, mask_folders):
             info = self.image_info[image_id]
             for index in range(len(mask_folders)):
                 image = Image.open(mask_folders[index])
@@ -153,11 +154,9 @@ class ShapesDataset(utils.Dataset):
                     min_dim=config.IMAGE_MIN_DIM,
                     max_dim=config.IMAGE_MAX_DIM,
                     mode="square")
-                for i in range(info['width']):
-                    for j in range(info['height']):
-                        at_pixel = image[i][j]
-                        if at_pixel[0] > 0:
-                            mask[i, j, index] =1
+                image = image[:,:,0]
+                image[image>0] = 1
+                mask[:, :, index] = image
             return mask
 
     def load_mask(self, image_id):
@@ -170,7 +169,7 @@ class ShapesDataset(utils.Dataset):
         count = len(mask_folders)
 
         mask = np.zeros([info['height'], info['width'], count], dtype=np.uint8)
-        mask = self.draw_mask(count, mask, mask_folders)
+        mask = self.draw_mask(count, image_id, mask, mask_folders)
         # Handle occlusions  就是把所有mask合成一个mask
         occlusion = np.logical_not(mask[:, :, -1]).astype(np.uint8)
         for i in range(count-2, -1, -1):
@@ -186,7 +185,7 @@ class ShapesDataset(utils.Dataset):
 
 
 # 基础设置
-dataset_root_path="/home/shenmaoyuan/proj/kaggle/stage1_train/"
+dataset_root_path="/home/recardo/proj/kaggle/competitions/data-science-bowl-2018/stage1_train/"
 imglist = os.listdir(dataset_root_path)
 imglist_val = []
 for i in range(70):
@@ -199,9 +198,18 @@ mask_floders = [dataset_root_path+img+"/masks/" for img in imglist]
 img_floders_val = [dataset_root_path+img+"/images/" for img in imglist_val]
 img_floders_val = [img+os.listdir(img)[0] for img in img_floders_val]
 mask_floders_val = [dataset_root_path+img+"/masks/" for img in imglist_val]
+# print(img_floders_val)
+# print(mask_floders_val)
 #yaml_floder = dataset_root_path
 count = len(imglist)
 countval = len(imglist_val)
+# print('count: ', count)
+# print('countval: ', countval)
+# print('img_floders_val.......',len(img_floders_val))
+# for i in range(countval):
+#     print(img_floders_val[i])
+#     print(mask_floders_val[i])
+
 # width = 1024
 # height = 1024
 
@@ -227,12 +235,24 @@ for image_id in image_ids:
     mask, class_ids = dataset_train.load_mask(image_id)
     visualize.display_top_masks(image, mask, class_ids, dataset_train.class_names)
 
+
+
+# image_ids = np.random.choice(dataset_val.image_ids, 4)
+# for image_id in image_ids:
+#     image = dataset_val.load_image(image_id)
+#     mask, class_ids = dataset_val.load_mask(image_id)
+#     visualize.display_top_masks(image, mask, class_ids, dataset_val.class_names)
+
+
+
+
+
 # Create model in training mode
 model = modellib.MaskRCNN(mode="training", config=config,
                           model_dir=MODEL_DIR)
 
 # Which weights to start with?
-init_with = "coco"  # imagenet, coco, or last
+init_with = "last"  # imagenet, coco, or last
 
 if init_with == "imagenet":
     model.load_weights(model.get_imagenet_weights(), by_name=True)
@@ -253,7 +273,7 @@ elif init_with == "last":
 # which layers to train by name pattern.
 model.train(dataset_train, dataset_val,
             learning_rate=config.LEARNING_RATE,
-            epochs=5,
+            epochs=15,
             layers='heads')
 
 # Fine tune all layers
@@ -262,7 +282,7 @@ model.train(dataset_train, dataset_val,
 # train by name pattern.
 model.train(dataset_train, dataset_val,
             learning_rate=config.LEARNING_RATE / 10,
-            epochs=10,
+            epochs=20,
             layers="all")
 
 # Save weights
@@ -292,27 +312,46 @@ assert model_path != "", "Provide path to trained weights"
 print("Loading weights from ", model_path)
 model.load_weights(model_path, by_name=True)
 
-# Test on a random image
-image_id = random.choice(dataset_val.image_ids)
-original_image, image_meta, gt_class_id, gt_bbox, gt_mask =\
-    modellib.load_image_gt(dataset_val, inference_config,
-                           image_id, use_mini_mask=False)
+def show_inference():
+    image_ids = np.random.choice(dataset_val.image_ids, 10)
+    # Test on a random image
+    # image_id = random.choice(dataset_val.image_ids)
+    # print('ids...',dataset_val.image_ids)
+    for image_id in image_ids:
+        original_image, image_meta, gt_class_id, gt_bbox, gt_mask =\
+            modellib.load_image_gt(dataset_val, inference_config,
+                                   image_id, use_mini_mask=False)
 
-log("original_image", original_image)
-log("image_meta", image_meta)
-log("gt_class_id", gt_class_id)
-log("gt_bbox", gt_bbox)
-log("gt_mask", gt_mask)
+        log("original_image", original_image)
+        log("image_meta", image_meta)
+        log("gt_class_id", gt_class_id)
+        log("gt_bbox", gt_bbox)
+        log("gt_mask", gt_mask)
 
-visualize.display_instances(original_image, gt_bbox, gt_mask, gt_class_id,
-                            dataset_train.class_names, figsize=(8, 8))
+        # print(dataset_val.image_info[image_id])
+        #smy 显示原图
+        # image_show = Image.fromarray(original_image)
+        height, width = original_image.shape[:2]
+        _, ax = plt.subplots(1, figsize=(8, 8))
+        ax.set_ylim(height + 10, -10)
+        ax.set_xlim(-10, width + 10)
+        ax.axis('off')
+        ax.set_title("")
+        ax.imshow(original_image.astype(np.uint8))
+        plt.show()
+        #smy 显示原图
 
-results = model.detect([original_image], verbose=1)
+        visualize.display_instances(original_image, gt_bbox, gt_mask, gt_class_id,
+                                    dataset_val.class_names, figsize=(8, 8))
 
-r = results[0]
-visualize.display_instances(original_image, r['rois'], r['masks'], r['class_ids'],
-                            dataset_val.class_names, r['scores'], ax=get_ax())
+        results = model.detect([original_image], verbose=1)
 
+        r = results[0]
+        # print("r['masks']...",r['masks'])
+        visualize.display_instances(original_image, r['rois'], r['masks'], r['class_ids'],
+                                    dataset_val.class_names, r['scores'], ax=get_ax())
+
+show_inference()
 # Compute VOC-Style mAP @ IoU=0.5
 # Running on 10 images. Increase for better accuracy.
 image_ids = np.random.choice(dataset_val.image_ids, 10)

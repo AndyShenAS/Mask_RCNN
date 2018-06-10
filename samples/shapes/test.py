@@ -61,7 +61,7 @@ config = ShapesConfig()
 config.display()
 
 # 基础设置
-dataset_root_path="/home/shenmaoyuan/proj/kaggle/stage1_train/"
+dataset_root_path="/home/recardo/proj/kaggle/competitions/data-science-bowl-2018/stage1_train/"
 imglist = os.listdir(dataset_root_path)
 imglist_val = []
 # for i in range(70):
@@ -84,24 +84,23 @@ for i in range(len(imglist)):
 
 # Load random image and mask.
 
-image = Image.open(img_floders[538])
+image = Image.open(img_floders[656])
 image = image.convert("RGB")
 # mask, class_ids = dataset.load_mask(image_id)
 image = np.array(image, dtype=np.uint8)
-original_shape = image.shape
+
+# mask_path = mask_floders[0]
+# masklist = os.listdir(mask_path)
+# mask_folders = [mask_path+mask for mask in masklist]
+# count = len(mask_folders)
+# image = Image.open(mask_folders[0])
+# image = image.convert("RGB")
+# at_pixel = image.getpixel((100, 100))
+# print('at_pixel:',at_pixel)
+# image = np.array(image, dtype=np.uint8)
 
 
-
-mask_path = mask_floders[0]
-masklist = os.listdir(mask_path)
-mask_folders = [mask_path+mask for mask in masklist]
-count = len(mask_folders)
-image = Image.open(mask_folders[0])
-image = image.convert("RGB")
-at_pixel = image.getpixel((100, 100))
-print('at_pixel:',at_pixel)
-image = np.array(image, dtype=np.uint8)
-print('mask shape:',image.shape)
+print('image shape:',image.shape)
 
 
 np.set_printoptions(threshold=np.NaN)
@@ -110,27 +109,27 @@ f = open('./test_parameter.txt','w')
 f.write(str(image))
 f.close()
 
-
-
-
-
-
-
 # 调整到固定大小
 image, window, scale, padding = utils.resize_image(
     image,
     min_dim=config.IMAGE_MIN_DIM,
     max_dim=config.IMAGE_MAX_DIM,
     mode="square")
-    # ,
-    # padding=config.IMAGE_PADDING
+
+# image shape: (256, 320, 3)
+# image                    shape: (1024, 1024, 3)       min:    0.00000  max:  215.00000  uint8
+# window:  (102, 0, 921, 1024)
+# scale:  3.2
+# padding:  [(102, 103), (0, 0), (0, 0)]
+
+
+
 # mask = utils.resize_mask(mask, scale, padding) # mask也要放缩
 # # Compute Bounding box
 # bbox = utils.extract_bboxes(mask)
 
 # Display image and additional stats
 # print("image_id: ", image_id, dataset.image_reference(image_id))
-print("Original shape: ", original_shape)
 log("image", image)
 print("window: ", window)
 print("scale: ", scale)
